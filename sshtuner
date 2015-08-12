@@ -1,0 +1,201 @@
+#!/bin/bash
+#
+# (c) 20150812 - Leif Sawyer
+
+# depending on your ssh version, this can either be a non-existant host, or something online.
+# we don't use real user identification at all in the tests, so be wary of fail2ban-like problems.
+TEST_HOST=192.168.0.1
+
+# OpenSSH_6.6.1p1
+SSHVER=$(ssh -V 2>&1 | sed 's/.*_\([0-9].[0-9]*\).*/\1/;')
+SSHV=${SSHVER//./}
+
+# ctr > cbc ,  arcfour=fastest,broken 3des=weakest,broken  blowfish=weak
+CIPHER_BEST_ORDER="chacha20-poly1305@openssh.com aes256-gcm@openssh.com aes128-gcm@openssh.com aes256-ctr aes192-ctr aes128-ctr"
+CIPHER_BEST_LEGACY="arcfour256 arcfour128 aes128-cbc arcfour"
+CIPHERS[67]="chacha20-poly1305@openssh.com aes256-gcm@openssh.com aes128-gcm@openssh.com aes256-ctr aes192-ctr aes128-ctr"
+CIPHERS[63]="chacha20-poly1305@openssh.com"
+CIPHERS[62]="aes256-cbc aes192-cbc aes128-cbc rijndael-cbc@lysator.liu.se"
+CIPHERS[43]="aes256-ctr aes192-ctr aes128-ctr aes256-cbc aes192-cbc aes128-cbc rijndael-cbc@lysator.liu.se cast128-cbc arcfour256 arcfour128 arcfour 3des-cbc blowfish-cbc"
+CIPHERS[1]="cast128-cbc arcfour256 arcfour128 arcfour 3des-cbc blowfish-cbc"
+CIPHERS[0]="twofish256-cbc twofish192-cbc twofish128-cbc twofish-cbc des-cbc@ssh.com seed-cbc@ssh.com"
+ALLCIPHERS=$(for i in ${CIPHERS[*]}; do echo $i; done | sort -u)
+
+MAC_BEST_ORDER="hmac-sha2-512-etm@openssh.com hmac-sha2-256-etm@openssh.com hmac-ripemd160-etm@openssh.com umac-128-etm@openssh.com hmac-sha2-512 hmac-sha2-256"
+MAC_BEST_LEGACY="hmac-sha1 hmac-ripemd160 umac-128@openssh.com hmac-md5"
+MACS[67]="hmac-sha2-512-etm@openssh.com hmac-sha2-256-etm@openssh.com hmac-ripemd160-etm@openssh.com umac-128-etm@openssh.com hmac-sha2-512 hmac-sha2-256 hmac-ripemd160 umac-128@openssh.com "
+MACS[65]="hmac-sha1 hmac-sha1-96 hmac-sha2-256 hmac-sha2-512 hmac-sha1-etm@openssh.com hmac-sha1-96-etm@openssh.com hmac-sha2-256-etm@openssh.com hmac-sha2-512-etm@openssh.com hmac-md5-etm@openssh.com hmac-md5-96-etm@openssh.com hmac-ripemd160-etm@openssh.com umac-64-etm@openssh.com umac-128-etm@openssh.com"
+MACS[62]="hmac-md5 hmac-md5-96 hmac-ripemd160 hmac-ripemd160@openssh.com umac-64@openssh.com umac-128@openssh.com "
+ALLMACS=$(for i in ${MACS[*]}; do echo $i; done | sort -u)
+
+KEX_BEST_ORDER="curve25519-sha256@libssh.org diffie-hellman-group-exchange-sha256 diffie-hellman-group-exchange-sha1"
+KEX_BEST_LEGACY="diffie-hellman-group14-sha1 diffie-hellman-group1-sha1"
+KEX[62]="curve25519-sha256@libssh.org" 
+KEX[52]="ecdh-sha2-nistp256 ecdh-sha2-nistp384 ecdh-sha2-nistp521"
+KEX[51]="diffie-hellman-group-exchange-sha256"
+KEX[43]="diffie-hellman-group14-sha1"
+KEX[11]="diffie-hellman-group-exchange-sha1 diffie-hellman-group1-sha1"
+ALLKEX=$(for i in ${KEX[*]}; do echo $i; done | sort -u)
+
+HKEY_BEST_ORDER="ssh-ed25519-cert-v01@openssh.com ssh-rsa-cert-v01@openssh.com ssh-rsa-cert-v00@openssh.com ssh-ed25519"
+HKEY_BEST_LEGACY="ssh-rsa ssh-dss-cert-v01@openssh.com ssh-dss-cert-v00@openssh.com ssh-dss"
+HKEY[65]="ecdsa-sha2-nistp384 ecdsa-sha2-nistp384-cert-v01@openssh.com ecdsa-sha2-nistp521 ecdsa-sha2-nistp521-cert-v01@openssh.com ssh-dss-cert-v00@openssh.com ssh-dss-cert-v01@openssh.com ssh-rsa-cert-v00@openssh.com ssh-rsa-cert-v01@openssh.com"
+HKEY[62]="ssh-ed25519 ssh-ed25519-cert-v01@openssh.com"
+HKEY[58]="ecdsa-sha2-nistp256-cert-v01@openssh.com ecdsa-sha2-nistp256"
+HKEY[11]="ssh-rsa ssh-dss"
+ALLHKEYS=$(for i in ${HKEY[*]}; do echo $i; done | sort -u)
+
+test ${SSHV} -gt 36 && TO="-o ConnectTimeout=1"
+
+COMPAT_CIPHERS="aes128-ctr"   # backwards preference order
+test $SSHV -eq 36 && COMPAT_CIPHERS="aes128-cbc"
+test $SSHV -gt 36 && COMPAT_CIPHERS="${COMPAT_CIPHERS},aes256-ctr"
+test $SSHV -gt 62 && COMPAT_CIPHERS="${COMPAT_CIPHERS},aes256-gcm@openssh.com,chacha20-poly1305@openssh.com"
+
+COMPAT_MACS="hmac-sha1,hmac-md5"	#always available
+
+SSHOPS="-N -i /dev/null -F /dev/null -o UserKnownHostsFile=/dev/null"
+
+test_ciphers() {
+	for C in ${ALLCIPHERS}
+	do
+		result=$(ssh ${SSHOPS} ${TO} -c $C cipher-test@${TEST_HOST} 2>&1 | grep -v timed )
+		if [ -n "${result}" ]
+		then
+			BAD_CIPHERS="${BAD_CIPHERS} $C"
+		else
+			GOOD_CIPHERS="${GOOD_CIPHERS} $C"
+		fi
+	done
+}
+
+test_macs() {
+	for M in ${ALLMACS}
+	do
+		result=$(ssh ${SSHOPS} ${TO} -o Ciphers=${COMPAT_CIPHERS} -m $M mac-test@${TEST_HOST} 2>&1 | grep -v timed )
+		if [ -n "${result}" ]
+		then
+			BAD_MACS="${BAD_MACS} $M"
+		else
+			GOOD_MACS="${GOOD_MACS} $M"
+		fi
+	done
+}
+
+test_kex() {
+	if [ ${SSHV} -lt 52 ]
+	then
+		echo "Manual KEX Algorithm ordering is not supported in this version of ssh"
+		test ${SSHV} -ge 11 && GOOD_KEX="${GOOD_KEX} ${KEX[11]}"
+		test ${SSHV} -lt 11 &&  BAD_KEX="${BAD_KEX} ${KEX[11]}"
+
+		test ${SSHV} -ge 43 && GOOD_KEX="${GOOD_KEX} ${KEX[43]}"
+		test ${SSHV} -lt 43 &&  BAD_KEX="${BAD_KEX} ${KEX[43]}"
+
+		test ${SSHV} -ge 51 && GOOD_KEX="${GOOD_KEX} ${KEX[51]}"
+		test ${SSHV} -lt 62 &&  BAD_KEX="${BAD_KEX} ${KEX[52]} ${KEX[62]}"
+
+	else
+		COMPAT="-o Ciphers=${COMPAT_CIPHERS} -o MACs=${COMPAT_MACS}"
+		for K in ${ALLKEX}
+		do
+			result=$(ssh ${SSHOPS} ${TO} -o KexAlgorithms=$K ${COMPAT} kex-test@${TEST_HOST} 2>&1 | grep -v timed )
+			if [ -n "${result}" ]
+			then
+				BAD_KEX="${BAD_KEX} $K"
+			else
+				GOOD_KEX="${GOOD_KEX} $K"
+			fi
+		done
+	fi
+}
+
+test_hkeys() {
+	if [ ${SSHV} -lt 43 ]
+	then
+		echo "Manual HostKey Algorithm ordering is not supported in this version of ssh"
+		GOOD_HKEYS="${HKEY[11]}"
+		BAD_HKEYS="${HKEY[58]} ${HKEY[62]} ${HKEY[65]}"
+
+	else
+		COMPAT="-o Ciphers=${COMPAT_CIPHERS} -o MACs=${COMPAT_MACS}"
+		for H in ${ALLHKEYS}
+		do
+			result=$(ssh ${SSHOPS} ${TO} -o HostKeyAlgorithms=$H ${COMPAT} hkey-test@${TEST_HOST} 2>&1 | grep -v timed )
+			if [ -n "${result}" ]
+			then
+				BAD_HKEYS="${BAD_HKEYS} $H"
+			else
+				GOOD_HKEYS="${GOOD_HKEYS} $H"
+			fi
+		done
+	fi
+}
+
+if [ -z "$1" ]
+then
+	echo "use the '-legacy' flag to include legacy encryption in final configs"
+	LEGACY=0
+else
+	LEGACY=1
+fi
+
+echo "SSH version is $SSHV (aka $SSHVER)"
+echo ""
+
+echo "Please wait, testing ciphers..."
+test_ciphers
+echo "Please wait, testing macs..."
+test_macs
+echo "Please wait, testing kexs..."
+test_kex
+echo "Please wait, testing hkeys..."
+test_hkeys
+
+echo "Your ssh(d)_config supports the following more-secure configuration:"
+echo ""
+
+test ${LEGACY} -eq 0 && CIPHER_BEST_LEGACY=""
+test ${LEGACY} -eq 0 && MAC_BEST_LEGACY=""
+test ${LEGACY} -eq 0 && KEX_BEST_LEGACY=""
+test ${LEGACY} -eq 0 && HKEY_BEST_LEGACY=""
+
+#echo "Bad cipherlist: $BAD_CIPHERS"
+for C in ${CIPHER_BEST_ORDER} ${CIPHER_BEST_LEGACY}
+do
+	if [ -n "$(echo $GOOD_CIPHERS | grep -iw $C)" ]
+	then
+		GCIPHERS="${GCIPHERS}${C},"
+	fi
+done
+echo "Ciphers ${GCIPHERS%,}"
+
+#echo "Bad MAC list: $BAD_MACS"
+for M in ${MAC_BEST_ORDER} ${MAC_BEST_LEGACY}
+do
+	if [ -n "$(echo $GOOD_MACS | grep -iw $M)" ]
+	then
+		GMACS="${GMACS}${M},"
+	fi
+done
+echo "MACs ${GMACS%,}"
+
+#echo "Bad KEX alogs: $BAD_KEX"
+for K in ${KEX_BEST_ORDER} ${KEX_BEST_LEGACY}
+do
+	if [ -n "$(echo $GOOD_KEX | grep -iw $K)" ]
+	then
+		GKEXS="${GKEXS}${K},"
+	fi
+done
+echo "KexAlgorithms ${GKEXS%,}"
+
+#echo "Bad HKey alogs: $BAD_HKEYS"
+for H in ${HKEY_BEST_ORDER} ${HKEY_BEST_LEGACY}
+do
+	if [ -n "$(echo $GOOD_HKEYS | grep -iw $H)" ]
+	then
+		GHKEYS="${GHKEYS}${H},"
+	fi
+done
+echo "HostKeyAlgorithms ${GHKEYS%,}"
