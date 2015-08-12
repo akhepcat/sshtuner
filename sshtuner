@@ -4,6 +4,8 @@
 
 # depending on your ssh version, this can either be a non-existant host, or something online.
 # we don't use real user identification at all in the tests, so be wary of fail2ban-like problems.
+# mostly right now, we're doing fake connection attempts to non-existant hosts to validate the CLIENT
+# can parse the encryptions.   Server-side testing isn't implemented just yet.
 TEST_HOST=192.168.0.1
 
 # OpenSSH_6.6.1p1

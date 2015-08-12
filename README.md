@@ -1,5 +1,7 @@
 # sshtuner
-overly ugly script to check your ssh client/server support for various encryption algorithms and suggest a 'best practices' configlet
+overly ugly script to check your ssh client support for various encryption algorithms and suggest a 'best practices' configlet
+
+This currently doesn't test your servers.
 
 defaults to "modern" practices, but you can add "-legacy" support with a command-line flag.  
 (really, any text on the command line forces legacy support right now)
