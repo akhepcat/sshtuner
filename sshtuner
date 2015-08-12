@@ -5,8 +5,9 @@
 # depending on your ssh version, this can either be a non-existant host, or something online.
 # we don't use real user identification at all in the tests, so be wary of fail2ban-like problems.
 # mostly right now, we're doing fake connection attempts to non-existant hosts to validate the CLIENT
-# can parse the encryptions.   Server-side testing isn't implemented just yet.
-TEST_HOST=192.168.0.1
+# can parse the encryptions.   
+# **  Server-side testing isn't implemented just yet, so make sure the test host is UNREACHABLE **
+TEST_HOST=240.0.0.4		# class E space should work for that
 
 # OpenSSH_6.6.1p1
 SSHVER=$(ssh -V 2>&1 | sed 's/.*_\([0-9].[0-9]*\).*/\1/;')
@@ -47,8 +48,6 @@ HKEY[58]="ecdsa-sha2-nistp256-cert-v01@openssh.com ecdsa-sha2-nistp256"
 HKEY[11]="ssh-rsa ssh-dss"
 ALLHKEYS=$(for i in ${HKEY[*]}; do echo $i; done | sort -u)
 
-test ${SSHV} -gt 36 && TO="-o ConnectTimeout=1"
-
 COMPAT_CIPHERS="aes128-ctr"   # backwards preference order
 test $SSHV -eq 36 && COMPAT_CIPHERS="aes128-cbc"
 test $SSHV -gt 36 && COMPAT_CIPHERS="${COMPAT_CIPHERS},aes256-ctr"
@@ -61,7 +60,7 @@ SSHOPS="-N -i /dev/null -F /dev/null -o UserKnownHostsFile=/dev/null"
 test_ciphers() {
 	for C in ${ALLCIPHERS}
 	do
-		result=$(ssh ${SSHOPS} ${TO} -c $C cipher-test@${TEST_HOST} 2>&1 | grep -v timed )
+		result=$(perl -e 'alarm 1; exec @ARGV' ssh ${SSHOPS} ${TO} -c $C cipher-test@${TEST_HOST} 2>&1 | grep -viE 'timed|alarm' )
 		if [ -n "${result}" ]
 		then
 			BAD_CIPHERS="${BAD_CIPHERS} $C"
@@ -74,7 +73,7 @@ test_ciphers() {
 test_macs() {
 	for M in ${ALLMACS}
 	do
-		result=$(ssh ${SSHOPS} ${TO} -o Ciphers=${COMPAT_CIPHERS} -m $M mac-test@${TEST_HOST} 2>&1 | grep -v timed )
+		result=$(perl -e 'alarm 1; exec @ARGV' ssh ${SSHOPS} ${TO} -o Ciphers=${COMPAT_CIPHERS} -m $M mac-test@${TEST_HOST} 2>&1 | grep -viE 'timed|alarm' )
 		if [ -n "${result}" ]
 		then
 			BAD_MACS="${BAD_MACS} $M"
@@ -101,7 +100,7 @@ test_kex() {
 		COMPAT="-o Ciphers=${COMPAT_CIPHERS} -o MACs=${COMPAT_MACS}"
 		for K in ${ALLKEX}
 		do
-			result=$(ssh ${SSHOPS} ${TO} -o KexAlgorithms=$K ${COMPAT} kex-test@${TEST_HOST} 2>&1 | grep -v timed )
+			result=$(perl -e 'alarm 1; exec @ARGV' ssh ${SSHOPS} ${TO} -o KexAlgorithms=$K ${COMPAT} kex-test@${TEST_HOST} 2>&1 | grep -viE 'timed|alarm' )
 			if [ -n "${result}" ]
 			then
 				BAD_KEX="${BAD_KEX} $K"
@@ -123,7 +122,7 @@ test_hkeys() {
 		COMPAT="-o Ciphers=${COMPAT_CIPHERS} -o MACs=${COMPAT_MACS}"
 		for H in ${ALLHKEYS}
 		do
-			result=$(ssh ${SSHOPS} ${TO} -o HostKeyAlgorithms=$H ${COMPAT} hkey-test@${TEST_HOST} 2>&1 | grep -v timed )
+			result=$(perl -e 'alarm 1; exec @ARGV' ssh ${SSHOPS} ${TO} -o HostKeyAlgorithms=$H ${COMPAT} hkey-test@${TEST_HOST} 2>&1 | grep -viE 'timed|alarm' )
 			if [ -n "${result}" ]
 			then
 				BAD_HKEYS="${BAD_HKEYS} $H"
