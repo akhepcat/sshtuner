@@ -11,7 +11,7 @@ This has not been tested on a wide swath of platforms or ssh versions.
   some "OLD" versions are not well supported, but hardcoded based on manual testing.  Sigh.  
   
 
-    $ ssh-enc-check
+    $ sshtuner
     use the '-legacy' flag to include legacy encryption in final configs
     SSH version is 66 (aka 6.6)  
     
