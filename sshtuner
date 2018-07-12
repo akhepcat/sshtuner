@@ -133,13 +133,27 @@ test_hkeys() {
 	fi
 }
 
-if [ -z "$1" ]
-then
-	echo "use the '-legacy' flag to include legacy encryption in final configs"
-	LEGACY=0
-else
-	LEGACY=1
-fi
+LEGACY=0
+
+while true
+do
+	ARG=$1
+	test -z "${ARG}" && break
+
+	if [ -z "${ARG##-legacy}" -o -z "${ARG##-l}" ]
+	then
+		LEGACY=1
+	elif [ -z "${ARG//[a-zA-Z0-9_.-]/}" ]
+	then
+		TEST_HOST=${ARG}
+	else
+		echo "unknown option: ${ARG}"
+	fi
+	
+	shift
+done
+
+test ${LEGACY} -eq 0 && echo "use the '-legacy' flag to include legacy encryption in final configs"
 
 echo "SSH version is $SSHV (aka $SSHVER)"
 echo ""
